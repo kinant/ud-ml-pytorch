@@ -1,0 +1,44 @@
+I will be using the models that we learned about so far in this course. I have chosen the following:
+1. Random Forest
+2. Support Vector Machines
+3. AdaBoost
+
+I will quickly summarize why I didn't choose the other ones:
+
+1. Linear Regression: Does not fit well for data that is non-linear or has many features. In this project, I think this is the case, so I omit this model. 
+
+2. Decision Trees: They tend to overfit. 
+
+3. Naive Baynes: Could probably work, but it is better on text data. 
+
+I have used the following as references:
+- Scikit Learn — Choosing the right estimator: https://medium.com/@methakur77/scikit-learn-choosing-the-right-estimator-78e5934a5d8d
+
+- Demystify Machine Learning Model Selection, a Step by Step Guide: https://dataknowsall.com/blog/modelselection.html
+
+- sklearn Choosing the right estimator: https://scikit-learn.org/stable/machine_learning_map.html
+
+Random Forest
+Describe one real-world application in industry where the model can be applied.
+
+
+
+What are the strengths of the model; when does it perform well?
+What are the weaknesses of the model; when does it perform poorly?
+What makes this model a good candidate for the problem, given what you know about the data?
+
+Support Vector Machines
+Describe one real-world application in industry where the model can be applied.
+
+
+What are the strengths of the model; when does it perform well?
+What are the weaknesses of the model; when does it perform poorly?
+What makes this model a good candidate for the problem, given what you know about the data?
+
+AdaBoost
+Describe one real-world application in industry where the model can be applied.
+
+
+What are the strengths of the model; when does it perform well?
+What are the weaknesses of the model; when does it perform poorly?
+What makes this model a good candidate for the problem, given what you know about the data?
