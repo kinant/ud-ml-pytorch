@@ -1,3 +1,9 @@
 REFERENCES:
 
 - https://scikit-learn.org/stable/developers/develop.html
+- https://stackoverflow.com/questions/40755680/how-to-reset-index-pandas-dataframe-after-dropna-pandas-dataframe
+- https://www.geeksforgeeks.org/machine-learning/how-to-perform-ordinal-encoding-using-sklearn/
+- https://medium.com/@benjybo7/3-steps-to-implement-a-custom-scikit-learn-transformer-88b5acf3c80f
+- https://medium.com/@nikitadutta/part-1-2-imputation-techniques-for-missing-data-with-code-visuals-a1d25dfde027
+- https://www.kaggle.com/code/wordroid/how-pca-helps-extract-and-understand-cluster
+- https://cran.r-project.org/web/packages/LearnPCA/vignettes/Vig_04_Scores_Loadings.pdf
