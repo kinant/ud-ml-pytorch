@@ -1,4 +1,5 @@
 # LP_LEBENSPHASE_FEIN EXPLORATION
+
 # 1. Household Type (categorical):
 # Single: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
 # Couple: 14, 15, 16, 17, 18, 19, 20,
@@ -6,12 +7,14 @@
 # Family: 24, 25, 26, 27, 28
 # Multiperson: 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40
 
-# 2. Income Type (categorical):
+# 2. Income Type (ordinal):
 # Low Income: 1, 2, 5, 6, 14, 15, 21, 24, 29, 31
 # Average Income: 3, 4, 7, 8, 14, 16, 22, 25, 30, 32
 # High Income: 23
-# Top Earner: 13, 20, 28, 35, 39, 40
 # Wealthy: 10, 18
+# Top Earner: 13, 20, 28, 35, 39, 40
+
+# 3. Is Independent (binary):
 # Independent: 9, 17, 26, 33, 36
 
 # 3. Age Class (ordinal):
