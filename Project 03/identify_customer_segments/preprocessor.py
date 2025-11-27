@@ -812,6 +812,14 @@ class AzdiasPreprocessor():
 
         return X_out
 
+    def downcast_data(self, X):
+
+        X_out = X.copy()
+
+        X_out = X_out.astype("float16")
+
+        return X_out
+
 
 
 
