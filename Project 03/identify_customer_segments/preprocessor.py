@@ -301,10 +301,6 @@ class FeatureDropper(BaseEstimator, TransformerMixin):
                 for feature in self.features_in_
                 if feature not in self.dropped_features]
 
-        print(f"Dropped Features: {self.dropped_features}")
-        print(f"get_feature_names_out: {output_features}")
-        print(f"get_feature_names_out length: {len(output_features)}")
-
         return output_features
 
 class DatasetSplitter(BaseEstimator, TransformerMixin):
@@ -366,12 +362,13 @@ class MixedFeatureEngineer(BaseEstimator, TransformerMixin):
     def fit(self, X, y=None):
         # Get the input features
         self.feature_names_in_ = X.columns.tolist()
+
         return self
 
     def transform(self, X):
+        check_is_fitted(self)
+        print(f"MixedFeatureEngineer Encoding...")
         X_out = X.copy()
-
-        # Create new columns by using df.map() and the mappings defined earlier
 
         # Iterate over each nested dictionary
         for original_feature, new_feature_maps in self.mappings.items():
@@ -379,9 +376,9 @@ class MixedFeatureEngineer(BaseEstimator, TransformerMixin):
             for new_feature, new_feature_map in new_feature_maps.items():
                 # Perform the map
                 X_out[new_feature] = X_out[original_feature].map(new_feature_map)
-
+                print(f"MixedFeatureEngineer Encoded {new_feature} from {original_feature}")
             # Drop the original feature, ignore any errors if the feature is not found
-            X_out = X_out.drop(original_feature, errors="ignore")
+            X_out = X_out.drop(original_feature, axis=1, errors="ignore")
 
         return X_out
 
@@ -410,6 +407,7 @@ class Encoder(BaseEstimator, TransformerMixin):
         self.onehot_features = onehot_features or []
 
     def fit(self, X):
+        print(f"Encoder fitting...")
 
         self.output_features_ = []
 
@@ -422,10 +420,13 @@ class Encoder(BaseEstimator, TransformerMixin):
             self.onehot_encoder_.fit(X[self.onehot_features])
             self.output_features_.extend(self.onehot_encoder_.get_feature_names_out())
 
+        print(f"Length of output features: {len(self.output_features_)}")
+        print(f"output_features: {self.output_features_}")
+
         return self
 
     def transform(self, X):
-
+        print(f"Engineering Features...")
         # Check that the instance is fitted
         check_is_fitted(self)
 
@@ -449,9 +450,15 @@ class Encoder(BaseEstimator, TransformerMixin):
         print(f"One-hot encoded {len(self.onehot_features)} feature(s) "
                 f"into {len(onehot_features_out)} features")
 
+        print(f"Length of output features: {len(self.output_features_)}")
+        print(f"output_features: {self.output_features_}")
+
         return X_out
 
     def get_feature_names_out(self, input_features=None):
+        print(f"Length of output features: {len(self.output_features_)}")
+        print(f"output_features: {self.output_features_}")
+
         return self.output_features_
 
 """
@@ -647,8 +654,8 @@ class AzdiasPreprocessor():
             steps=[
                 (REPLACE_MISSINGS, replace_missing_transformer),
                 (DROP_FEATURES, drop_na_features_transformer),
-                # (SPLIT_DATA, splitter),
-                #(ENGINEER, engineer_transformer),
+                (SPLIT_DATA, splitter),
+                (ENGINEER, engineer_transformer),
                 #(ENCODE, encoder)
             ],
             verbose=True
