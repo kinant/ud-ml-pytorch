@@ -507,7 +507,7 @@ class AzdiasPreprocessor():
             na_sample_threshold=25,
             cleaning_pipeline=None,
             impute_pipeline=None,
-            scaling_pipeline=None,
+            scale_pipeline=None,
             split_data=False
     ):
         """
@@ -565,7 +565,41 @@ class AzdiasPreprocessor():
             print(f"No pipeline parameter passed in. Building default pipeline...")
             self._cleaning_pipeline = self._build_default_cleaning_pipeline()
 
+        self._impute_scale_pipeline = None
+
+        if impute_pipeline and scale_pipeline:
+            self._impute_pipeline = impute_pipeline
+            self._scale_pipeline = scale_pipeline
+        else:
+            print(f"No impute and scale pipeline parameter passed in. Building default pipeline...")
+            self._impute_pipeline, self._scale_pipeline = self._build_impute_scale_pipeline()
+
+        self._data_cleaned = False
+        self._data_imputed_scaled = False
+
         del self._feature_summary
+
+    @property
+    def cleaning_pipeline(self):
+        if not self._cleaning_pipeline:
+            print(f"Pipeline not fitted yet. Returning unfitted pipeline...")
+        return self._cleaning_pipeline
+
+    @property
+    def scale_pipeline(self):
+        if self._data_imputed_scaled and self._data_imputed_scaled:
+            return self._impute_scale_pipeline.named_steps[SCALE]
+        else:
+            print(f"Pipeline not fitted yet. Returning unfitted pipeline...")
+            return self._scale_pipeline
+
+    @property
+    def impute_pipeline(self):
+        if self._data_imputed_scaled and self._data_imputed_scaled:
+            return self._impute_scale_pipeline.named_steps[IMPUTE]
+        else:
+            print(f"Pipeline not fitted yet. Returning unfitted pipeline...")
+            return self._impute_pipeline
 
     def _set_na_features_to_drop(self, df):
 
@@ -686,15 +720,66 @@ class AzdiasPreprocessor():
 
         return pipeline
 
+    def _build_impute_scale_pipeline(self):
+        print(f"Building imputation and scaling pipeline...")
+
+        imputer = ColumnTransformer(
+            transformers=[
+                (BINARY, SimpleImputer(strategy='most_frequent'), list(self._feature_groups[BINARY])),
+                (BIN_NO_NUM, SimpleImputer(strategy='most_frequent'), list(self._feature_groups[BIN_NO_NUM])),
+                (ORDINAL, SimpleImputer(strategy='median'), list(self._feature_groups[ORDINAL])),
+                (NUMERIC, SimpleImputer(strategy='median'), list(self._feature_groups[NUMERIC])),
+                (INTERVAL, SimpleImputer(strategy='median'), list(self._feature_groups[INTERVAL]))
+            ],
+            remainder='passthrough',
+            verbose_feature_names_out=False
+        ).set_output(transform="pandas")
+
+        scaler = StandardScaler()
+
+        return imputer, scaler
+
     def clean_data(self, X):
         X_out = X.copy()
 
+        print(f"Cleaning data...")
+
         if self._cleaning_pipeline:
             X_out = self._cleaning_pipeline.fit_transform(X)
+            self._data_cleaned = True
         else:
             print(f"No cleaning pipeline provided...returning original data")
+            self._data_cleaned = False
 
         return X_out
+
+    def impute_and_scale_data(self, X):
+        X_out = X.copy()
+
+        if self._data_cleaned:
+
+            print(f"Imputing and Scaling data...")
+
+            pipeline = Pipeline(
+                steps=[
+                    (IMPUTE, self._impute_pipeline),
+                    (SCALE, self._scale_pipeline)
+                ],
+                verbose=True
+            ).set_output(transform="pandas")
+
+            X_out = pipeline.fit_transform(X)
+
+            print(f"Data has been imputed and scaled")
+            self._impute_scale_pipeline = pipeline
+            self._data_imputed_scaled = True
+        else:
+            print(f"Data has not been cleaned yet...returning original data")
+            self._data_imputed_scaled = False
+
+        return X_out
+
+
 
 
 
