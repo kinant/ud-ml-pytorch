@@ -392,6 +392,8 @@ class MixedFeatureEngineer(BaseEstimator, TransformerMixin):
             else:
                 print(f"MixedFeatureEngineer Dropped {original_feature}")
 
+        X_out = X_out.sort_index(axis=1)
+
         return X_out
 
     def inverse_transform(self, X):
@@ -411,6 +413,7 @@ class MixedFeatureEngineer(BaseEstimator, TransformerMixin):
         output_features.extend([P_DECADE, P_MOVEMENT, C_WEALTH, C_LIFE, LP_STAGE, LP_INCOME,
                        LP_INDEP, LP_AGE, LP_HOMEOWN, WOHN_QUAL, WOHN_RURAL, WOHN_BUILD])
 
+        output_features = sorted(output_features)
         print(f"MixedFeatureEngineer Encoding...features OUT[2]: {output_features}")
 
         return output_features
