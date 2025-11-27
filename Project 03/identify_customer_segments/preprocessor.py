@@ -68,7 +68,16 @@ LP_INDEP = 'LP_IS_INDEPENDENT'
 # Data filenames
 DATA_AZDIAS = 'Udacity_AZDIAS_Subset.csv'
 
-# FEATURE SUMMARY COLUMN LABLES
+# CATEGORICALS TO DROP:
+CATEGORICALS_TO_DROP = [
+    "LP_FAMILIE_GROB",
+    "LP_STATUS_GROB",
+    "NATIONALITAET_KZ",
+    "SOHO_KZ",
+    "CAMEO_DEUG_2015"
+]
+
+# FEATURE SUMMARY COLUMN LABELS
 FS_TYPE = 'type'
 FS_ATTR = 'attribute'
 FS_OBJ = 'object'
@@ -152,13 +161,15 @@ MAPPINGS = {
     }
 }
 
-# PIPELINE STEPS
+# PIPELINE CLEANING STEPS
 REPLACE_MISSINGS = 'replace_missings'
 DROP_FEATURES = 'drop_features'
 SPLIT_DATA = 'split_data'
+DROP_CATEGORICAL = 'drop_categorical'
 ENGINEER = 'engineer'
 ENCODE = 'encode'
-DROP_ENCODED_FEATURES = 'drop_encoded_features'
+
+# PIPELINE IMPUTING AND SCALING STEPS
 IMPUTE = 'impute'
 SCALE = 'scale'
 
@@ -378,7 +389,12 @@ class MixedFeatureEngineer(BaseEstimator, TransformerMixin):
                 X_out[new_feature] = X_out[original_feature].map(new_feature_map)
                 print(f"MixedFeatureEngineer Encoded {new_feature} from {original_feature}")
             # Drop the original feature, ignore any errors if the feature is not found
-            X_out = X_out.drop(original_feature, axis=1, errors="ignore")
+            try:
+                X_out = X_out.drop(original_feature, axis=1)
+            except KeyError:
+                print(f"MixedFeatureEngineer could not drop {original_feature}")
+            else:
+                print(f"MixedFeatureEngineer Dropped {original_feature}")
 
         return X_out
 
@@ -392,41 +408,46 @@ class MixedFeatureEngineer(BaseEstimator, TransformerMixin):
         # Return output feature names by adding the new ones
         # Filter out the original features and extend the new ones
         output_features = [feature for feature in self.feature_names_in_
-                          if feature not in [PRA_JUG, CAM_INT, LP_LEB, WOHN_QUAL]]
+                          if feature not in [PRA_JUG, CAM_INT, LP_LEB, WOHN]]
 
-        # We do not add LP_LIFE_STAGE, because it is categorical and will be one-hot-encoded
         output_features.extend([P_DECADE, P_MOVEMENT, C_WEALTH, C_LIFE, LP_INCOME,
-                       LP_INDEP, LP_AGE, LP_HOMEOWN, WOHN_QUAL, WOHN_RURAL, WOHN_BUILD])
+                       LP_INDEP, LP_AGE, LP_STAGE, LP_HOMEOWN, WOHN_QUAL, WOHN_RURAL, WOHN_BUILD])
 
         return output_features
 
 class Encoder(BaseEstimator, TransformerMixin):
 
     def __init__(self, ordinal_features=None, onehot_features=None):
-        self.ordinal_features = ordinal_features or []
-        self.onehot_features = onehot_features or []
+        self.ordinal_features = ordinal_features or None
+        self.onehot_features = onehot_features or None
 
     def fit(self, X):
-        print(f"Encoder fitting...")
 
-        self.output_features_ = []
+        self.output_features_ = [
+            feature for feature in X.columns.tolist()
+            if feature not in self.ordinal_features + self.onehot_features
+        ]
 
         if self.ordinal_features:
+            print(f"Encoder Creating and Fitting Ordinal Encoder...")
             self.ordinal_encoder_ = OrdinalEncoder(categories=[['O', 'W']], encoded_missing_value=np.nan)
             self.ordinal_encoder_.fit(X[self.ordinal_features])
 
+            ordinal_encoder_out = self.ordinal_encoder_.get_feature_names_out()
+            self.output_features_.extend(ordinal_encoder_out)
+
         if self.onehot_features:
+            print(f"Encoder Creating and Fitting Onehot Encoder...")
             self.onehot_encoder_ = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
             self.onehot_encoder_.fit(X[self.onehot_features])
-            self.output_features_.extend(self.onehot_encoder_.get_feature_names_out())
 
-        print(f"Length of output features: {len(self.output_features_)}")
-        print(f"output_features: {self.output_features_}")
+            onehot_encoder_out = self.onehot_encoder_.get_feature_names_out()
+            self.output_features_.extend(onehot_encoder_out)
 
         return self
 
     def transform(self, X):
-        print(f"Engineering Features...")
+        print(f"Encoder Engineering Features...")
         # Check that the instance is fitted
         check_is_fitted(self)
 
@@ -441,7 +462,7 @@ class Encoder(BaseEstimator, TransformerMixin):
             verbose_feature_names_out=False
         ).set_output(transform="pandas")
 
-        encoder.transform(X_out)
+        X_out = encoder.fit_transform(X_out)
 
         onehot_features_out = encoder.named_transformers_["onehot"].get_feature_names_out()
 
@@ -450,15 +471,9 @@ class Encoder(BaseEstimator, TransformerMixin):
         print(f"One-hot encoded {len(self.onehot_features)} feature(s) "
                 f"into {len(onehot_features_out)} features")
 
-        print(f"Length of output features: {len(self.output_features_)}")
-        print(f"output_features: {self.output_features_}")
-
         return X_out
 
     def get_feature_names_out(self, input_features=None):
-        print(f"Length of output features: {len(self.output_features_)}")
-        print(f"output_features: {self.output_features_}")
-
         return self.output_features_
 
 """
@@ -532,7 +547,7 @@ class AzdiasPreprocessor():
             TO_SCALE: set(),
             TO_DROP: {
                 NA_FEATURES: set(),
-                OTHER: {
+                CATEGORICAL: {
                     "LP_FAMILIE_GROB", "LP_STATUS_GROB", "NATIONALITAET_KZ", "SOHO_KZ",
                     "CAMEO_DEUG_2015", "LP_LEBENSPHASE_GROB", "PLZ8_BAUMAX"
                 }
@@ -609,7 +624,7 @@ class AzdiasPreprocessor():
         for feature in categorical_features:
 
             # skip over the dropped categorical features
-            if feature in self._feature_groups[TO_DROP][OTHER]:
+            if feature in self._feature_groups[TO_DROP][CATEGORICAL]:
                 # continue and do not append to any list
                 continue
 
@@ -636,18 +651,25 @@ class AzdiasPreprocessor():
         replace_missing_transformer = ReplaceMissingTransformer(self._feature_summary)
 
         # 2. Drop High NaN Features
-        drop_na_features_transformer = FeatureDropper(features_to_drop=self._feature_groups[TO_DROP][NA_FEATURES])
+        drop_na_features_transformer = FeatureDropper(features_to_drop=list(self._feature_groups[TO_DROP][NA_FEATURES]))
 
         # 3. Split data into two subsets
         splitter = DatasetSplitter(threshold=25)
+
+        # 4. After splitting the data, we can proceed to drop the drop multi-level
+        # categoricals chosen by examination. We drop these AFTER splitting the data
+        # as to not affect the results of splitting
+        drop_cat_features_transformer = FeatureDropper(features_to_drop=list(self._feature_groups[TO_DROP][CATEGORICAL]))
 
         # 4. Engineer mixed-type features
         engineer_transformer = MixedFeatureEngineer(mappings=MAPPINGS)
 
         # 5. Encode Features
+        categorical_features = list(self._feature_groups[MULTI].union(self._feature_groups[ENGINEERED_CAT]))
+
         encoder = Encoder(
-            ordinal_features=self._feature_groups[ORDINAL],
-            onehot_features=self._feature_groups[MULTI]
+            ordinal_features=list(self._feature_groups[BIN_NO_NUM]),
+            onehot_features=categorical_features
         )
 
         pipeline = Pipeline(
@@ -655,8 +677,9 @@ class AzdiasPreprocessor():
                 (REPLACE_MISSINGS, replace_missing_transformer),
                 (DROP_FEATURES, drop_na_features_transformer),
                 (SPLIT_DATA, splitter),
+                (DROP_CATEGORICAL, drop_cat_features_transformer),
                 (ENGINEER, engineer_transformer),
-                #(ENCODE, encoder)
+                (ENCODE, encoder)
             ],
             verbose=True
         ).set_output(transform="pandas")
