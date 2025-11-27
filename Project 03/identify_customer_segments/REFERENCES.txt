@@ -7,3 +7,5 @@ REFERENCES:
 - https://medium.com/@nikitadutta/part-1-2-imputation-techniques-for-missing-data-with-code-visuals-a1d25dfde027
 - https://www.kaggle.com/code/wordroid/how-pca-helps-extract-and-understand-cluster
 - https://cran.r-project.org/web/packages/LearnPCA/vignettes/Vig_04_Scores_Loadings.pdf
+- https://scikit-learn.org/stable/modules/generated/sklearn.utils.validation.check_is_fitted.html
+- https://stackoverflow.com/questions/44620465/why-did-reset-indexdrop-true-function-unwantedly-remove-column

@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from pandas.core.groupby.ops import DataSplitter
 from sklearn.exceptions import NotFittedError
 
 from sklearn.preprocessing import (OneHotEncoder, StandardScaler, FunctionTransformer, OrdinalEncoder)
@@ -8,6 +9,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn import set_config
+from sklearn.utils.validation import check_is_fitted
 
 # So that our sklearn estimators/transformers output a pandas dataframe
 set_config(transform_output="pandas")
@@ -168,8 +170,7 @@ class ReplaceMissingTransformer(BaseEstimator, TransformerMixin):
 
     def __init__(self, feature_summary):
         self.feature_summary = feature_summary
-        self._missing_summary = None
-        self._converted_na_total = 0
+        self.converted_na_total = 0
 
     def _get_missing_summary(self):
         """
@@ -205,22 +206,23 @@ class ReplaceMissingTransformer(BaseEstimator, TransformerMixin):
 
         return missing_summary
 
-    def fit(self, X, y=None):
-        if self._missing_summary is None:
-            self._missing_summary = self._get_missing_summary()
+    def fit(self, X):
+
+        self.missing_summary_ = self._get_missing_summary()
 
         return self
 
     def transform(self, X):
-        if self._missing_summary is None:
-            raise NotFittedError("This model has not been fitted yet.")
+
+        # Check that instance has been fitted
+        check_is_fitted(self)
 
         X_out = X.copy()
 
         counter = 0
         # we iterate over each attribute and list pair in the dictionary
         # we don't iterate over each column, as not all of them have missing_or_unknown codes
-        for attribute, lst in self._missing_summary.items():
+        for attribute, lst in self.missing_summary_.items():
 
             # Skip over any attribute that is not in the DataFrame
             if attribute not in X_out:
@@ -234,10 +236,124 @@ class ReplaceMissingTransformer(BaseEstimator, TransformerMixin):
             X_out[attribute] = X_out[attribute].replace(lst, np.nan)
 
             # increment total
-            self._converted_na_total += n_miss
+            self.converted_na_total += n_miss
             counter += 1
 
         return X_out
+
+    def set_output(self, *, transform=None):
+        return self
+
+class FeatureDropper(BaseEstimator, TransformerMixin):
+    """
+    Custom transformer that drops features from a dataset.
+    This class is designed so that a single feature dropper can be used
+    to drop features at several places, keeping track of relevant information.
+    More than one can also be used for different purposes.
+    """
+
+    def __init__(self, features_to_drop):
+        self.dropped_features = [] # keep track of all the features dropped by an instance
+        self.features_to_drop = features_to_drop
+
+    def fit(self, X):
+        # Keep track of the list of features coming in
+        self.features_in_ = X.columns.to_list()
+
+        return self
+
+    def transform(self, X):
+
+        # Check that instance has been fitted
+        check_is_fitted(self)
+
+        X_out = X.copy()
+        counter = 0
+
+        print(f"Dropping Features: {self.features_to_drop}")
+        # Iterate over each feature set to be dropped
+        for feature in self.features_to_drop:
+            try:
+                X_out = X_out.drop(feature, axis=1)
+                counter += 1
+                self.dropped_features.append(feature)
+
+            except KeyError:
+                print(f"{feature} not found in dataframe")
+
+        print(f"Dropped {counter} features")
+        # Clear the features to drop
+        self.features_to_drop.clear()
+
+        return X_out
+
+    def get_feature_names_out(self):
+        """
+        We need to set the get_feature_names_out when we use custom transformers
+        So that we can get the correct feature/columns out after transformation
+        :return:
+        """
+
+        # Return those features that came in that are not any that were dropped
+        # In other words, the remaining features
+
+        output_features = [feature
+                for feature in self.features_in_
+                if feature not in self.dropped_features]
+
+        print(f"Dropped Features: {self.dropped_features}")
+        print(f"get_feature_names_out: {output_features}")
+        print(f"get_feature_names_out length: {len(output_features)}")
+
+        return output_features
+
+class DatasetSplitter(BaseEstimator, TransformerMixin):
+    """
+    Custom Transformer that splits a dataset by threshold of the count of NaN values per row.
+    This might not be the most correct way to do it, following sklearn conventions, because
+    eventually we are returning 2 different subsets of the data but it works for this project.
+    """
+
+    def __init__(self, threshold):
+        self.threshold = threshold
+
+    def fit(self, X, y=None):
+        self.missing_per_row_ = X.isna().sum(axis=1)
+        return self
+
+    def transform(self, X):
+
+        # Check that instance has been fitted
+        check_is_fitted(self)
+
+        # Split the dataset into two, based on the threshold
+        # Technically learned attributes should be set in fit()
+        # But I do it here since I consider it transforming the data
+        X_low = X[self.missing_per_row_ <= self.threshold]
+        n_dropped = len(X) - len(X_low)
+
+        # Reset index
+        X_low = X_low.reset_index(drop=True)
+
+        print(f"Kept {len(X_low)} rows, dropped {n_dropped} rows")
+
+        return X_low
+
+    def get_high_missing_subset(self, X):
+        # Since a transformer can only return one dataset,
+        # we use a separate function to return the high missings
+        # subset
+
+        # Check that the instance has been fitted
+        check_is_fitted(self)
+
+        X_high = X[self.missing_per_row_ > self.threshold]
+        X_high = X_high.reset_index(drop=True)
+
+        return X_high
+
+    def set_output(self, *, transform=None):
+        return self
 
 class MixedFeatureEngineer(BaseEstimator, TransformerMixin):
     """
@@ -264,15 +380,12 @@ class MixedFeatureEngineer(BaseEstimator, TransformerMixin):
                 # Perform the map
                 X_out[new_feature] = X_out[original_feature].map(new_feature_map)
 
-            # Drop the original feature
-            try:
-                X_out = X_out.drop(original_feature, axis=1)
-            except KeyError:
-                pass
+            # Drop the original feature, ignore any errors if the feature is not found
+            X_out = X_out.drop(original_feature, errors="ignore")
 
         return X_out
 
-    def inverse_transform(self, X, y=None):
+    def inverse_transform(self, X):
         # In this case, for analysis, we do not want to inverse transform
         # So we return the original data
         return X
@@ -290,64 +403,56 @@ class MixedFeatureEngineer(BaseEstimator, TransformerMixin):
 
         return output_features
 
-class FeatureDropper(BaseEstimator, TransformerMixin):
-    """
-    Custom transformer that drops features from a dataset.
-    This class is designed so that a single feature dropper can be used
-    to drop features at several places, keeping track of relevant information.
-    More than one can also be used for different purposes.
-    """
+class Encoder(BaseEstimator, TransformerMixin):
 
-    def __init__(self, features_to_drop):
-        self.dropped_features = [] # keep track of all the features dropped by an instance
-        self.features_to_drop = features_to_drop
-        self.is_fitted = False
+    def __init__(self, ordinal_features=None, onehot_features=None):
+        self.ordinal_features = ordinal_features or []
+        self.onehot_features = onehot_features or []
 
-    def fit(self, X, y=None):
-        # Keep track of the list of features coming in
-        self.features_in_ = X.columns.to_list()
-        self.is_fitted = True
+    def fit(self, X):
+
+        self.output_features_ = []
+
+        if self.ordinal_features:
+            self.ordinal_encoder_ = OrdinalEncoder(categories=[['O', 'W']], encoded_missing_value=np.nan)
+            self.ordinal_encoder_.fit(X[self.ordinal_features])
+
+        if self.onehot_features:
+            self.onehot_encoder_ = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
+            self.onehot_encoder_.fit(X[self.onehot_features])
+            self.output_features_.extend(self.onehot_encoder_.get_feature_names_out())
 
         return self
 
     def transform(self, X):
-        # Check that instance has been fitted
-        if not self.is_fitted:
-            raise NotFittedError(
-                f"This {self.__class__.__name__} instance is not fitted yet. "
-                "Call 'fit' with appropriate arguments before using this estimator."
-            )
+
+        # Check that the instance is fitted
+        check_is_fitted(self)
 
         X_out = X.copy()
 
-        counter = 0
-        print(f"Dropping Features: {self.features_to_drop}")
-        # Iterate over each feature set to be dropped
-        for feature in self.features_to_drop:
-            try:
-                X_out.drop(feature, errors="ignore")
-                counter += 1
-            except KeyError:
-                print(f"{feature} not found in dataframe")
+        encoder = ColumnTransformer(
+            transformers=[
+                ('ordinal', self.ordinal_encoder_ if self.ordinal_features else "passthrough", self.ordinal_features),
+                ('onehot', self.onehot_encoder_ if self.onehot_features else "passthrough", self.onehot_features)
+            ],
+            remainder='passthrough',
+            verbose_feature_names_out=False
+        ).set_output(transform="pandas")
 
-        print(f"Dropped {counter} features")
-        # Clear the features to drop
-        self.features_to_drop.clear()
+        encoder.transform(X_out)
+
+        onehot_features_out = encoder.named_transformers_["onehot"].get_feature_names_out()
+
+        print(f"Ordinal encoded {len(self.ordinal_features)} feature(s)")
+
+        print(f"One-hot encoded {len(self.onehot_features)} feature(s) "
+                f"into {len(onehot_features_out)} features")
 
         return X_out
 
-    def get_feature_names_out(self):
-        """
-        We need to set the get_feature_names_out when we use custom transformers
-        So that we can get the correct feature/columns out after transformation
-        :return:
-        """
-
-        # Return those features that came in that are not any that were dropped
-        # In other words, the remaining features
-        return [feature
-                for feature in self.features_in_
-                if feature not in self.dropped_features]
+    def get_feature_names_out(self, input_features=None):
+        return self.output_features_
 
 """
 PREPROCESSING PIPELINE SUMMARY
@@ -380,7 +485,8 @@ class AzdiasPreprocessor():
             na_sample_threshold=25,
             cleaning_pipeline=None,
             impute_pipeline=None,
-            scaling_pipeline=None
+            scaling_pipeline=None,
+            split_data=False
     ):
         """
         Initialize the preprocessor.
@@ -392,12 +498,12 @@ class AzdiasPreprocessor():
         :param impute_pipeline: custom impute pipeline to apply to the data
         :param scaling_pipeline: custom scaling pipeline to apply to the data
         """
-        self.data_source_ = data_source
-        self.summary_source_ = summary_source
-        self.na_feature_threshold_ = na_feature_threshold
-        self.na_sample_threshold_ = na_sample_threshold
+        self._data_source = data_source
+        self._summary_source = summary_source
+        self._na_feature_threshold = na_feature_threshold
+        self._na_sample_threshold = na_sample_threshold
 
-        self.feature_groups_ = {
+        self._feature_groups = {
             BINARY: {
                 P_MOVEMENT, LP_HOMEOWN, LP_INDEP, WOHN_RURAL, WOHN_BUILD
             },
@@ -426,26 +532,28 @@ class AzdiasPreprocessor():
             }
         }
 
-        self.feature_summary_ = {}
-        self.feature_dictionary_ = {}
+        self._feature_summary = {}
+        self._feature_dictionary = {}
 
         self._load_data()
 
         if cleaning_pipeline:
-            self.cleaning_pipeline_ = pipeline
+            self._cleaning_pipeline = cleaning_pipeline
         else:
             print(f"No pipeline parameter passed in. Building default pipeline...")
-            self.cleaning_pipeline_ = self._build_default_pipeline()
+            self._cleaning_pipeline = self._build_default_cleaning_pipeline()
+
+        del self._feature_summary
 
     def _set_na_features_to_drop(self, df):
 
-        replace_missing_transformer = ReplaceMissingTransformer(self.feature_summary_)
-
-        df = replace_missing_transformer.fit_transform(df)
+        replace_missing_transformer = ReplaceMissingTransformer(self._feature_summary)
+        replace_missing_transformer.fit_transform(df)
+        df = replace_missing_transformer.transform(df)
 
         df_missing_pct = (df.isna().sum().sort_values() / df.shape[0]) * 100
 
-        self.feature_groups_[TO_DROP][NA_FEATURES].update(
+        self._feature_groups[TO_DROP][NA_FEATURES].update(
             df_missing_pct[df_missing_pct > 20].index.tolist()
         )
 
@@ -453,49 +561,48 @@ class AzdiasPreprocessor():
         return df
 
     def _load_data(self):
-        print(f"Loading data from...{self.data_source_}")
-        df_population_raw = pd.read_csv(self.data_source_, delimiter=";")
-        self.feature_summary_ = pd.read_csv(self.summary_source_, delimiter=";")
+        print(f"Loading data from...{self._data_source}")
+        df_population_raw = pd.read_csv(self._data_source, delimiter=";")
+        self._feature_summary = pd.read_csv(self._summary_source, delimiter=";")
 
         self._set_feature_groups(df_population_raw)
 
         del df_population_raw
-        del self.feature_summary_
 
     def _set_feature_groups(self, df):
         df = self._set_na_features_to_drop(df)
 
         feature_list =  [
             f for f in df.columns.to_list()
-            if f not in self.feature_groups_[TO_DROP][NA_FEATURES]
+            if f not in self._feature_groups[TO_DROP][NA_FEATURES]
         ]
 
         ordinal_features = list(
-            self.feature_summary_[
-                (self.feature_summary_[FS_ATTR].isin(feature_list)) &
-                (self.feature_summary_[FS_TYPE] == ORDINAL)][FS_ATTR]
+            self._feature_summary[
+                (self._feature_summary[FS_ATTR].isin(feature_list)) &
+                (self._feature_summary[FS_TYPE] == ORDINAL)][FS_ATTR]
         )
 
         numerical_features = list(
-            self.feature_summary_[
-                (self.feature_summary_[FS_ATTR].isin(feature_list)) &
-                (self.feature_summary_[FS_TYPE] == NUMERIC)][FS_ATTR]
+            self._feature_summary[
+                (self._feature_summary[FS_ATTR].isin(feature_list)) &
+                (self._feature_summary[FS_TYPE] == NUMERIC)][FS_ATTR]
         )
 
-        self.feature_groups_[ORDINAL].update(ordinal_features)
-        self.feature_groups_[NUMERIC].update(numerical_features)
+        self._feature_groups[ORDINAL].update(ordinal_features)
+        self._feature_groups[NUMERIC].update(numerical_features)
 
         categorical_features = list(
-            self.feature_summary_[
-                (self.feature_summary_[FS_ATTR].isin(feature_list)) &
-                (self.feature_summary_[FS_TYPE] == CATEGORICAL)][FS_ATTR]
+            self._feature_summary[
+                (self._feature_summary[FS_ATTR].isin(feature_list)) &
+                (self._feature_summary[FS_TYPE] == CATEGORICAL)][FS_ATTR]
         )
 
         # iterate over each categorical
         for feature in categorical_features:
 
             # skip over the dropped categorical features
-            if feature in self.feature_groups_[TO_DROP][OTHER]:
+            if feature in self._feature_groups[TO_DROP][OTHER]:
                 # continue and do not append to any list
                 continue
 
@@ -504,32 +611,61 @@ class AzdiasPreprocessor():
                 # check if numeric or not
                 if df[feature].dtype == FS_OBJ:
 
-                    if feature not in self.feature_groups_[BIN_NO_NUM]:
-                        self.feature_groups_[BIN_NO_NUM].add(feature)
+                    if feature not in self._feature_groups[BIN_NO_NUM]:
+                        self._feature_groups[BIN_NO_NUM].add(feature)
                 else:
-                    if feature not in self.feature_groups_[BINARY]:
-                        self.feature_groups_[BINARY].add(feature)
+                    if feature not in self._feature_groups[BINARY]:
+                        self._feature_groups[BINARY].add(feature)
 
             # else, it is a multi-level categorical
             else:
-                if feature not in self.feature_groups_[MULTI]:
-                    self.feature_groups_[MULTI].add(feature)
+                if feature not in self._feature_groups[MULTI]:
+                    self._feature_groups[MULTI].add(feature)
 
     def _build_default_cleaning_pipeline(self):
         print(f"Building cleaning pipeline...")
 
         # 1. Replace Missings
-        replace_missing_transformer = ReplaceMissingTransformer(self.feature_summary_)
+        replace_missing_transformer = ReplaceMissingTransformer(self._feature_summary)
 
         # 2. Drop High NaN Features
-        drop_na_features_transformer = FeatureDropper(features_to_drop=self.feature_groups_[TO_DROP][NA_FEATURES])
+        drop_na_features_transformer = FeatureDropper(features_to_drop=self._feature_groups[TO_DROP][NA_FEATURES])
 
-        self.pipeline_ = Pipeline(
+        # 3. Split data into two subsets
+        splitter = DatasetSplitter(threshold=25)
+
+        # 4. Engineer mixed-type features
+        engineer_transformer = MixedFeatureEngineer(mappings=MAPPINGS)
+
+        # 5. Encode Features
+        encoder = Encoder(
+            ordinal_features=self._feature_groups[ORDINAL],
+            onehot_features=self._feature_groups[MULTI]
+        )
+
+        pipeline = Pipeline(
             steps=[
                 (REPLACE_MISSINGS, replace_missing_transformer),
                 (DROP_FEATURES, drop_na_features_transformer),
-            ]
-        )
+                # (SPLIT_DATA, splitter),
+                #(ENGINEER, engineer_transformer),
+                #(ENCODE, encoder)
+            ],
+            verbose=True
+        ).set_output(transform="pandas")
+
+        return pipeline
+
+    def clean_data(self, X):
+        X_out = X.copy()
+
+        if self._cleaning_pipeline:
+            X_out = self._cleaning_pipeline.fit_transform(X)
+        else:
+            print(f"No cleaning pipeline provided...returning original data")
+
+        return X_out
+
 
 
 
