@@ -460,6 +460,7 @@ class Encoder(BaseEstimator, TransformerMixin):
             onehot_encoder_out = self.onehot_encoder_.get_feature_names_out()
             self.output_features_.extend(onehot_encoder_out)
 
+
         self.encoded_features_ = list(ordinal_encoder_out) + list(onehot_encoder_out)
 
         self.encoded_features_ = np.concatenate([ordinal_encoder_out, onehot_encoder_out])
@@ -492,13 +493,16 @@ class Encoder(BaseEstimator, TransformerMixin):
         print(f"One-hot encoded {len(self.onehot_features)} feature(s) "
                 f"into {len(onehot_features_out)} features")
 
+        # Make sure properly sorted
+        X_out = X_out.sort_index(axis=1)
+
         return X_out
 
     def get_feature_names_out(self, input_features=None):
-        return self.output_features_
+        return sorted(self.output_features_)
 
     def get_encoded_features_out(self, input_features=None):
-        return self.encoded_features_
+        return sorted(self.encoded_features_)
 
 """
 PREPROCESSING PIPELINE SUMMARY
