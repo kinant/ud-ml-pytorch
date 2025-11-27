@@ -452,7 +452,9 @@ class Encoder(BaseEstimator, TransformerMixin):
             onehot_encoder_out = self.onehot_encoder_.get_feature_names_out()
             self.output_features_.extend(onehot_encoder_out)
 
-        self.encoded_features_ = ordinal_encoder_out + onehot_encoder_out
+        self.encoded_features_ = list(ordinal_encoder_out) + list(onehot_encoder_out)
+
+        self.encoded_features_ = np.concatenate([ordinal_encoder_out, onehot_encoder_out])
 
         return self
 
