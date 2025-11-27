@@ -412,11 +412,18 @@ class MixedFeatureEngineer(BaseEstimator, TransformerMixin):
 
 class Encoder(BaseEstimator, TransformerMixin):
 
-    def __init__(self, ordinal_features=None, onehot_features=None):
-        self.ordinal_features = ordinal_features or None
-        self.onehot_features = onehot_features or None
+    def __init__(self, ordinal_features, onehot_features):
+        self.ordinal_features = ordinal_features
+        self.onehot_features = onehot_features
 
     def fit(self, X):
+
+        print(f"Encoder Fitting Ordinal Encoder...")
+        print(f"onehot_features: {self.onehot_features}")
+        print(f"ordinal_features: {self.ordinal_features}")
+
+        ordinal_encoder_out = []
+        onehot_encoder_out = []
 
         self.output_features_ = [
             feature for feature in X.columns.tolist()
@@ -425,7 +432,13 @@ class Encoder(BaseEstimator, TransformerMixin):
 
         if self.ordinal_features:
             print(f"Encoder Creating and Fitting Ordinal Encoder...")
-            self.ordinal_encoder_ = OrdinalEncoder(categories=[['O', 'W']], encoded_missing_value=np.nan)
+            self.ordinal_encoder_ = OrdinalEncoder(
+                categories=[['O', 'W']],
+                handle_unknown='use_encoded_value',
+                unknown_value=np.nan,
+                encoded_missing_value=np.nan
+            )
+
             self.ordinal_encoder_.fit(X[self.ordinal_features])
 
             ordinal_encoder_out = self.ordinal_encoder_.get_feature_names_out()
@@ -461,7 +474,8 @@ class Encoder(BaseEstimator, TransformerMixin):
 
         X_out = encoder.fit_transform(X_out)
 
-        onehot_features_out = encoder.named_transformers_["onehot"].get_feature_names_out()
+        onehot_features_out = encoder.named_transformers_["onehot"].get_feature_names_out() \
+            if self.onehot_features else []
 
         print(f"Ordinal encoded {len(self.ordinal_features)} feature(s)")
 
