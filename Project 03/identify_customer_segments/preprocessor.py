@@ -93,8 +93,8 @@ MAPPINGS = {
         }
     },
     CAM_INT: {
-        C_WEALTH: lambda x: int(x) // 10 if not pd.isna(x) else np.nan,
-        C_LIFE: lambda x: int(x) % 10 if not pd.isna(x) else np.nan
+        C_WEALTH: lambda x: int(x) // 10 if pd.notna(x) and str(x).replace('-', '').isdigit() else np.nan,
+        C_LIFE: lambda x: int(x) % 10 if pd.notna(x) and str(x).replace('-', '').isdigit() else np.nan
     },
     LP_LEB: {
         LP_STAGE: {
@@ -367,7 +367,8 @@ class MixedFeatureEngineer(BaseEstimator, TransformerMixin):
 
     def fit(self, X, y=None):
         # Get the input features
-        self.feature_names_in_ = X.columns.tolist()
+        self.feature_names_in_ = sorted(X.columns.tolist())
+        print(f"MixedFeatureEngineer Encoding...features IN: {self.feature_names_in_}")
 
         return self
 
@@ -405,8 +406,12 @@ class MixedFeatureEngineer(BaseEstimator, TransformerMixin):
         output_features = [feature for feature in self.feature_names_in_
                           if feature not in [PRA_JUG, CAM_INT, LP_LEB, WOHN]]
 
-        output_features.extend([P_DECADE, P_MOVEMENT, C_WEALTH, C_LIFE, LP_INCOME,
-                       LP_INDEP, LP_AGE, LP_STAGE, LP_HOMEOWN, WOHN_QUAL, WOHN_RURAL, WOHN_BUILD])
+        print(f"MixedFeatureEngineer Encoding...features OUT[1]: {output_features}")
+
+        output_features.extend([P_DECADE, P_MOVEMENT, C_WEALTH, C_LIFE, LP_STAGE, LP_INCOME,
+                       LP_INDEP, LP_AGE, LP_HOMEOWN, WOHN_QUAL, WOHN_RURAL, WOHN_BUILD])
+
+        print(f"MixedFeatureEngineer Encoding...features OUT[2]: {output_features}")
 
         return output_features
 
