@@ -15,27 +15,27 @@ set_config(transform_output="pandas")
 from pprint import pprint
 import json
 
-BINARY = "binary"
-BIN_NO_NUM = "non_numeric_binary"
-NUMERIC = "numeric"
-ORDINAL = "ordinal"
-INTERVAL = "interval"
+BINARY = 'binary'
+BIN_NO_NUM = 'non_numeric_binary'
+NUMERIC = 'numeric'
+ORDINAL = 'ordinal'
+INTERVAL = 'interval'
 
-CATEGORICAL = "categorical"
-MULTI = "multi_categorical"
-MIXED = "mixed"
-MIXED_ENG = "mixed_engineered"
-OTHER = "other"
+CATEGORICAL = 'categorical'
+MULTI = 'multi_categorical'
+MIXED = 'mixed'
+MIXED_ENG = 'mixed_engineered'
+OTHER = 'other'
 
-ENGINEERED_FEATURES = "engineered_features"
-ENGINEERED_CAT= "engineered_categorical"
-ENCODED_FEATURES = "encoded_features"
+ENGINEERED_FEATURES = 'engineered_features'
+ENGINEERED_CAT= 'engineered_categorical'
+ENCODED_FEATURES = 'encoded_features'
 
 # For feature actions
-TO_ENGINEER = "features_to_engineer"
-TO_DROP = "features_to_drop"
-TO_KEEP = "features_to_keep"
-TO_SCALE = "features_to_scale"
+TO_ENGINEER = 'features_to_engineer'
+TO_DROP = 'features_to_drop'
+TO_KEEP = 'features_to_keep'
+TO_SCALE = 'features_to_scale'
 
 # Re-encoded feature
 OST_WEST = 'OST_WEST_KZ'
@@ -64,16 +64,16 @@ LP_HOMEOWN = 'LP_IS_HOMEOWNER'
 LP_INDEP = 'LP_IS_INDEPENDENT'
 
 # Data filenames
-DATA_AZDIAS = "Udacity_AZDIAS_Subset.csv"
+DATA_AZDIAS = 'Udacity_AZDIAS_Subset.csv'
 
 # FEATURE SUMMARY COLUMN LABLES
-FS_TYPE = "type"
-FS_ATTR = "attribute"
-FS_OBJ = "object"
-FS_MISS_UNKWN = "missing_or_unknown"
+FS_TYPE = 'type'
+FS_ATTR = 'attribute'
+FS_OBJ = 'object'
+FS_MISS_UNKWN = 'missing_or_unknown'
 
 # FEATURES REMOVED BY COLUMN THRESHOLD
-NA_FEATURES = "na_features"
+NA_FEATURES = 'na_features'
 
 MAPPINGS = {
     PRA_JUG: {
@@ -150,7 +150,15 @@ MAPPINGS = {
     }
 }
 
-# CHOSEN FEATURES TO DROP
+# PIPELINE STEPS
+REPLACE_MISSINGS = 'replace_missings'
+DROP_FEATURES = 'drop_features'
+SPLIT_DATA = 'split_data'
+ENGINEER = 'engineer'
+ENCODE = 'encode'
+DROP_ENCODED_FEATURES = 'drop_encoded_features'
+IMPUTE = 'impute'
+SCALE = 'scale'
 
 # ============================================================================
 # Custom Transformers
@@ -231,6 +239,57 @@ class ReplaceMissingTransformer(BaseEstimator, TransformerMixin):
 
         return X_out
 
+class MixedFeatureEngineer(BaseEstimator, TransformerMixin):
+    """
+    Class that engineers mixed features
+    """
+
+    def __init__(self, mappings):
+        self.mappings = mappings
+
+    def fit(self, X, y=None):
+        # Get the input features
+        self.feature_names_in_ = X.columns.tolist()
+        return self
+
+    def transform(self, X):
+        X_out = X.copy()
+
+        # Create new columns by using df.map() and the mappings defined earlier
+
+        # Iterate over each nested dictionary
+        for original_feature, new_feature_maps in self.mappings.items():
+            # Iterate over each mapping dictionary for that new feature
+            for new_feature, new_feature_map in new_feature_maps.items():
+                # Perform the map
+                X_out[new_feature] = X_out[original_feature].map(new_feature_map)
+
+            # Drop the original feature
+            try:
+                X_out = X_out.drop(original_feature, axis=1)
+            except KeyError:
+                pass
+
+        return X_out
+
+    def inverse_transform(self, X, y=None):
+        # In this case, for analysis, we do not want to inverse transform
+        # So we return the original data
+        return X
+
+    def get_feature_names_out(self, input_features=None):
+
+        # Return output feature names by adding the new ones
+        # Filter out the original features and extend the new ones
+        output_features = [feature for feature in self.feature_names_in_
+                          if feature not in [PRA_JUG, CAM_INT, LP_LEB, WOHN_QUAL]]
+
+        # We do not add LP_LIFE_STAGE, because it is categorical and will be one-hot-encoded
+        output_features.extend([P_DECADE, P_MOVEMENT, C_WEALTH, C_LIFE, LP_INCOME,
+                       LP_INDEP, LP_AGE, LP_HOMEOWN, WOHN_QUAL, WOHN_RURAL, WOHN_BUILD])
+
+        return output_features
+
 class FeatureDropper(BaseEstimator, TransformerMixin):
     """
     Custom transformer that drops features from a dataset.
@@ -239,66 +298,43 @@ class FeatureDropper(BaseEstimator, TransformerMixin):
     More than one can also be used for different purposes.
     """
 
-    def __init__(self):
-        self.all_dropped_features = [] # keep track of all the features dropped by an instance
-        self.last_dropped_features = [] # keep track of the last features that were dropped
-        self.features_to_drop = [] # init list of the features to drop
-        self.n_dropped_last = 0 # count of the last features dropped
-        self.n_total_dropped = 0 # count of the total features drop
-
-    def set_features_to_drop(self, features_to_drop):
-        """
-        Sets the features that will be dropped
-        :param features_to_drop: features that will be dropped
-        """
-        self.features_to_drop = features_to_drop.copy()
-
-    def check_features_set(self):
-        """
-        Checks that the features to drop list is valid
-        :return:
-        """
-        if self.features_to_drop is None or len(self.features_to_drop) == 0:
-            print(f"Features to drop not set. Please set by calling set_features_to_drop first.")
-            print(f"No changes will be made to dataframe")
-            return False
-        return True
+    def __init__(self, features_to_drop):
+        self.dropped_features = [] # keep track of all the features dropped by an instance
+        self.features_to_drop = features_to_drop
+        self.is_fitted = False
 
     def fit(self, X, y=None):
-
         # Keep track of the list of features coming in
         self.features_in_ = X.columns.to_list()
+        self.is_fitted = True
+
         return self
 
     def transform(self, X):
+        # Check that instance has been fitted
+        if not self.is_fitted:
+            raise NotFittedError(
+                f"This {self.__class__.__name__} instance is not fitted yet. "
+                "Call 'fit' with appropriate arguments before using this estimator."
+            )
 
-        # Check that we have set the features to drop
-        self.check_features_set()
-        X = X.copy()
+        X_out = X.copy()
 
-        # Reset attributes
-        self.last_dropped_features = []
-        self.n_dropped_last = 0
-
+        counter = 0
         print(f"Dropping Features: {self.features_to_drop}")
-
         # Iterate over each feature set to be dropped
         for feature in self.features_to_drop:
             try:
-                X.drop(feature, axis=1, inplace=True)
+                X_out.drop(feature, errors="ignore")
+                counter += 1
             except KeyError:
                 print(f"{feature} not found in dataframe")
-            else:
-                # Update attributes
-                self.all_dropped_features.append(feature)
-                self.last_dropped_features.append(feature)
-                self.n_dropped_last += 1
-                self.n_total_dropped += 1
 
-        # Clear the features to drop, for the next use
+        print(f"Dropped {counter} features")
+        # Clear the features to drop
         self.features_to_drop.clear()
-        print(f"Number of features dropped: {self.n_dropped_last}")
-        return X
+
+        return X_out
 
     def get_feature_names_out(self):
         """
@@ -311,19 +347,7 @@ class FeatureDropper(BaseEstimator, TransformerMixin):
         # In other words, the remaining features
         return [feature
                 for feature in self.features_in_
-                if feature not in self.last_dropped_features]
-
-    def get_n_total_dropped(self):
-        return self.n_total_dropped
-
-    def get_n_last_dropped_features(self):
-        return self.n_dropped_last
-
-    def get_last_dropped_features(self):
-        return self.last_dropped_features
-
-    def get_all_dropped_features(self):
-        return self.all_dropped_features
+                if feature not in self.dropped_features]
 
 """
 PREPROCESSING PIPELINE SUMMARY
@@ -348,7 +372,26 @@ PIPELINE STEPS:
 
 class AzdiasPreprocessor():
 
-    def __init__(self, data_source, summary_source, na_feature_threshold=20, na_sample_threshold=25):
+    def __init__(
+            self,
+            data_source,
+            summary_source,
+            na_feature_threshold=20,
+            na_sample_threshold=25,
+            cleaning_pipeline=None,
+            impute_pipeline=None,
+            scaling_pipeline=None
+    ):
+        """
+        Initialize the preprocessor.
+        :param data_source: path to the general population data file
+        :param summary_source: path to the feature summary file
+        :param na_feature_threshold: percentage threshold for dropping high-missing features
+        :param na_sample_threshold: threshold for splitting population data by row/sample missingness
+        :param cleaning_pipeline: custom processing pipeline to apply to the data
+        :param impute_pipeline: custom impute pipeline to apply to the data
+        :param scaling_pipeline: custom scaling pipeline to apply to the data
+        """
         self.data_source_ = data_source
         self.summary_source_ = summary_source
         self.na_feature_threshold_ = na_feature_threshold
@@ -387,6 +430,12 @@ class AzdiasPreprocessor():
         self.feature_dictionary_ = {}
 
         self._load_data()
+
+        if cleaning_pipeline:
+            self.cleaning_pipeline_ = pipeline
+        else:
+            print(f"No pipeline parameter passed in. Building default pipeline...")
+            self.cleaning_pipeline_ = self._build_default_pipeline()
 
     def _set_na_features_to_drop(self, df):
 
@@ -465,3 +514,23 @@ class AzdiasPreprocessor():
             else:
                 if feature not in self.feature_groups_[MULTI]:
                     self.feature_groups_[MULTI].add(feature)
+
+    def _build_default_cleaning_pipeline(self):
+        print(f"Building cleaning pipeline...")
+
+        # 1. Replace Missings
+        replace_missing_transformer = ReplaceMissingTransformer(self.feature_summary_)
+
+        # 2. Drop High NaN Features
+        drop_na_features_transformer = FeatureDropper(features_to_drop=self.feature_groups_[TO_DROP][NA_FEATURES])
+
+        self.pipeline_ = Pipeline(
+            steps=[
+                (REPLACE_MISSINGS, replace_missing_transformer),
+                (DROP_FEATURES, drop_na_features_transformer),
+            ]
+        )
+
+
+
+
