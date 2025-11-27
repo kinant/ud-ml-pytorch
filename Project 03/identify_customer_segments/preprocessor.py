@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-import gc
+from sklearn.exceptions import NotFittedError
 
 from sklearn.preprocessing import (OneHotEncoder, StandardScaler, FunctionTransformer, OrdinalEncoder)
 from sklearn.impute import SimpleImputer
@@ -160,8 +160,8 @@ class ReplaceMissingTransformer(BaseEstimator, TransformerMixin):
 
     def __init__(self, feature_summary):
         self.feature_summary = feature_summary
-        self.missing_summary = self._get_missing_summary()
-        self.converted_na_total = 0
+        self._missing_summary = None
+        self._converted_na_total = 0
 
     def _get_missing_summary(self):
         """
@@ -170,7 +170,6 @@ class ReplaceMissingTransformer(BaseEstimator, TransformerMixin):
         :param fs: Feature summary
         :return: Dictionary mapping attribute to a list of missing or unknown codes
         """
-
         def get_numeric_value(s):
             """
             Basic function that attempts to cast a string into an int.
@@ -199,28 +198,36 @@ class ReplaceMissingTransformer(BaseEstimator, TransformerMixin):
         return missing_summary
 
     def fit(self, X, y=None):
+        if self._missing_summary is None:
+            self._missing_summary = self._get_missing_summary()
+
         return self
 
     def transform(self, X):
+        if self._missing_summary is None:
+            raise NotFittedError("This model has not been fitted yet.")
+
         X_out = X.copy()
 
+        counter = 0
         # we iterate over each attribute and list pair in the dictionary
         # we don't iterate over each column, as not all of them have missing_or_unknown codes
-        for attribute, lst in self.missing_summary.items():
+        for attribute, lst in self._missing_summary.items():
 
             # Skip over any attribute that is not in the DataFrame
-            if attribute not in X:
+            if attribute not in X_out:
                 continue
 
             # Get the sum of missing or unknown values for that attribute/feature in the general pop. data
             # We use isin() function to match with the list of missing_or_unknown values and then sum them up
-            n_miss = X[attribute].isin(lst).sum()
+            n_miss = X_out[attribute].isin(lst).sum()
 
             # Replace all the values with NaN
             X_out[attribute] = X_out[attribute].replace(lst, np.nan)
 
             # increment total
-            self.converted_na_total += n_miss
+            self._converted_na_total += n_miss
+            counter += 1
 
         return X_out
 
@@ -394,22 +401,20 @@ class AzdiasPreprocessor():
         )
 
         del df_missing_pct
-        del df
+        return df
 
     def _load_data(self):
-
+        print(f"Loading data from...{self.data_source_}")
         df_population_raw = pd.read_csv(self.data_source_, delimiter=";")
         self.feature_summary_ = pd.read_csv(self.summary_source_, delimiter=";")
 
-        self._set_na_features_to_drop(df_population_raw)
         self._set_feature_groups(df_population_raw)
 
         del df_population_raw
         del self.feature_summary_
 
     def _set_feature_groups(self, df):
-
-        self._set_na_features_to_drop(df)
+        df = self._set_na_features_to_drop(df)
 
         feature_list =  [
             f for f in df.columns.to_list()
@@ -447,9 +452,7 @@ class AzdiasPreprocessor():
 
             # check for binary ones
             if df[feature].nunique() == 2:
-
                 # check if numeric or not
-
                 if df[feature].dtype == FS_OBJ:
 
                     if feature not in self.feature_groups_[BIN_NO_NUM]:
