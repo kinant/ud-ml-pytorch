@@ -343,9 +343,6 @@ class DatasetSplitter(BaseEstimator, TransformerMixin):
         # we use a separate function to return the high missings
         # subset
 
-        # Check that the instance has been fitted
-        check_is_fitted(self)
-
         # Calculate missing per row
         missing_per_row = X.isna().sum(axis=1)
 
@@ -845,7 +842,8 @@ class AzdiasPreprocessor():
             return None
 
         # Get the DataSplitter transformer
-        splitter: DatasetSplitter = self._cleaning_pipeline.named_steps[SPLIT_DATA]
+        splitter = self._cleaning_pipeline.named_steps[SPLIT_DATA]
 
+        splitter.fit(X)
         # Return the subset
         return splitter.get_high_missing_subset(X)
