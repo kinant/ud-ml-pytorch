@@ -288,8 +288,6 @@ class FeatureDropper(BaseEstimator, TransformerMixin):
                 print(f"{feature} not found in dataframe")
 
         print(f"Dropped {counter} features")
-        # Clear the features to drop
-        self.features_to_drop.clear()
 
         return X_out
 
@@ -319,19 +317,18 @@ class DatasetSplitter(BaseEstimator, TransformerMixin):
     def __init__(self, threshold):
         self.threshold = threshold
 
-    def fit(self, X, y=None):
-        self.missing_per_row_ = X.isna().sum(axis=1)
+    def fit(self, X):
         return self
 
     def transform(self, X):
 
-        # Check that instance has been fitted
-        check_is_fitted(self)
+        # Calculate missing per row
+        missing_per_row = X.isna().sum(axis=1)
 
         # Split the dataset into two, based on the threshold
         # Technically learned attributes should be set in fit()
         # But I do it here since I consider it transforming the data
-        X_low = X[self.missing_per_row_ <= self.threshold]
+        X_low = X[missing_per_row <= self.threshold]
         n_dropped = len(X) - len(X_low)
 
         # Reset index
@@ -349,7 +346,13 @@ class DatasetSplitter(BaseEstimator, TransformerMixin):
         # Check that the instance has been fitted
         check_is_fitted(self)
 
-        X_high = X[self.missing_per_row_ > self.threshold]
+        # Calculate missing per row
+        missing_per_row = X.isna().sum(axis=1)
+
+        # Get the high  missing subset
+        X_high = X[missing_per_row > self.threshold]
+
+        # Re-index and return
         X_high = X_high.reset_index(drop=True)
 
         return X_high
@@ -368,7 +371,6 @@ class MixedFeatureEngineer(BaseEstimator, TransformerMixin):
     def fit(self, X, y=None):
         # Get the input features
         self.feature_names_in_ = sorted(X.columns.tolist())
-        print(f"MixedFeatureEngineer Encoding...features IN: {self.feature_names_in_}")
 
         return self
 
@@ -403,18 +405,15 @@ class MixedFeatureEngineer(BaseEstimator, TransformerMixin):
 
     def get_feature_names_out(self, input_features=None):
 
-        # Return output feature names by adding the new ones
-        # Filter out the original features and extend the new ones
+        # Return output feature names by:
+        # 1) Filter out the original features and 2) extend the new ones
         output_features = [feature for feature in self.feature_names_in_
                           if feature not in [PRA_JUG, CAM_INT, LP_LEB, WOHN]]
-
-        print(f"MixedFeatureEngineer Encoding...features OUT[1]: {output_features}")
 
         output_features.extend([P_DECADE, P_MOVEMENT, C_WEALTH, C_LIFE, LP_STAGE, LP_INCOME,
                        LP_INDEP, LP_AGE, LP_HOMEOWN, WOHN_QUAL, WOHN_RURAL, WOHN_BUILD])
 
         output_features = sorted(output_features)
-        print(f"MixedFeatureEngineer Encoding...features OUT[2]: {output_features}")
 
         return output_features
 
@@ -426,12 +425,8 @@ class Encoder(BaseEstimator, TransformerMixin):
 
     def fit(self, X):
 
-        print(f"Encoder Fitting Ordinal Encoder...")
-        print(f"onehot_features: {self.onehot_features}")
-        print(f"ordinal_features: {self.ordinal_features}")
-
-        ordinal_encoder_out = []
-        onehot_encoder_out = []
+        self.ordinal_encoder_out_ = []
+        self.onehot_encoder_out_ = []
 
         self.output_features_ = [
             feature for feature in X.columns.tolist()
@@ -449,21 +444,21 @@ class Encoder(BaseEstimator, TransformerMixin):
 
             self.ordinal_encoder_.fit(X[self.ordinal_features])
 
-            ordinal_encoder_out = self.ordinal_encoder_.get_feature_names_out()
-            self.output_features_.extend(ordinal_encoder_out)
+            # Learn the ordinal features out
+            self.ordinal_encoder_out_ = self.ordinal_encoder_.get_feature_names_out()
+            self.output_features_.extend(self.ordinal_encoder_out_)
 
         if self.onehot_features:
             print(f"Encoder Creating and Fitting Onehot Encoder...")
             self.onehot_encoder_ = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
             self.onehot_encoder_.fit(X[self.onehot_features])
 
-            onehot_encoder_out = self.onehot_encoder_.get_feature_names_out()
-            self.output_features_.extend(onehot_encoder_out)
+            # Learn the onehot features out
+            self.onehot_encoder_out_ = self.onehot_encoder_.get_feature_names_out()
+            self.output_features_.extend(self.onehot_encoder_out_)
 
 
-        self.encoded_features_ = list(ordinal_encoder_out) + list(onehot_encoder_out)
-
-        self.encoded_features_ = np.concatenate([ordinal_encoder_out, onehot_encoder_out])
+        self.encoded_features_ = list(self.ordinal_encoder_out_) + list(self.onehot_encoder_out_)
 
         return self
 
@@ -474,24 +469,54 @@ class Encoder(BaseEstimator, TransformerMixin):
 
         X_out = X.copy()
 
-        encoder = ColumnTransformer(
-            transformers=[
-                ('ordinal', self.ordinal_encoder_ if self.ordinal_features else "passthrough", self.ordinal_features),
-                ('onehot', self.onehot_encoder_ if self.onehot_features else "passthrough", self.onehot_features)
-            ],
-            remainder='passthrough',
-            verbose_feature_names_out=False
-        ).set_output(transform="pandas")
+        # Keep track of the original features, which we will drop
+        features_to_drop = []
 
-        X_out = encoder.fit_transform(X_out)
+        if self.ordinal_features:
+            features_to_drop.extend(self.ordinal_features)
 
-        onehot_features_out = encoder.named_transformers_["onehot"].get_feature_names_out() \
-            if self.onehot_features else []
+        if self.onehot_features:
+            features_to_drop.extend(self.onehot_features)
+
+        # Drop them now
+        X_out = X_out.drop(features_to_drop, axis=1)
+
+        # We will have to create several dataframes and join them in the end
+        # We start by keeping the original dataframe, minus the dropped originals
+        dfs_to_join = [X_out]
+
+        # STEP 1: ORDINAL ENCODER:
+        # Good thing we already know the output features!
+        if self.ordinal_features:
+            # Get the ordinal features dataframe, we have to use X and not X_out because we dropped
+            # these features
+            df_ordinal = self.ordinal_encoder_.transform(X[self.ordinal_features])
+
+            # This new dataframe will result in duplication of features once we join them all
+            # So we will need to drop it
+            features_to_drop.extend(self.ordinal_features)
+
+            # Add it to the list
+            dfs_to_join.append(df_ordinal)
+
+        # STEP 2: ONE-HOT ENCODER
+        if self.onehot_features:
+
+            # We will need to drop originals
+            features_to_drop.extend(self.onehot_features)
+
+            # Get the onehot encoded features dataframe, again, using X and not X_out
+            df_onehot = self.onehot_encoder_.transform(X[self.onehot_features])
+
+            # Add it to the list
+            dfs_to_join.append(df_onehot)
+
+        # Once encoding done, concat all the dataframes
+        X_out = pd.concat(dfs_to_join, axis=1)
 
         print(f"Ordinal encoded {len(self.ordinal_features)} feature(s)")
-
         print(f"One-hot encoded {len(self.onehot_features)} feature(s) "
-                f"into {len(onehot_features_out)} features")
+              f"into {len(self.onehot_encoder_out_)} features")
 
         # Make sure properly sorted
         X_out = X_out.sort_index(axis=1)
@@ -504,27 +529,6 @@ class Encoder(BaseEstimator, TransformerMixin):
     def get_encoded_features_out(self, input_features=None):
         return sorted(self.encoded_features_)
 
-"""
-PREPROCESSING PIPELINE SUMMARY
-===============================================================================
-PIPELINE STEPS:
----------------
-
-1. IMPUTE MISSING VALUES (ReplaceMissingTransformer)
-
-2. DROP HIGH-MISSING COLUMNS (HighMissingColDropper)
-
-3. SPLIT DATASET BY ROW MISSINGNESS (DatasetSplitter)
-
-4. ENGINEER MIXED-TYPE FEATURES (MixedTypeEngineer)
-
-5. ENCODE CATEGORICAL FEATURES (CategoricalEncoder)
-
-6. DROP ORIGINAL ENCODED FEATURES (FeatureDropper)
-
-7. STANDARDIZE FEATURES (StandardScaler)
-"""
-
 class AzdiasPreprocessor():
 
     def __init__(
@@ -534,8 +538,8 @@ class AzdiasPreprocessor():
             na_feature_threshold=20,
             na_sample_threshold=25,
             cleaning_pipeline=None,
-            impute_pipeline=None,
-            scale_pipeline=None,
+            imputer=None,
+            scaler=None,
             split_data=False
     ):
         """
@@ -545,8 +549,8 @@ class AzdiasPreprocessor():
         :param na_feature_threshold: percentage threshold for dropping high-missing features
         :param na_sample_threshold: threshold for splitting population data by row/sample missingness
         :param cleaning_pipeline: custom processing pipeline to apply to the data
-        :param impute_pipeline: custom impute pipeline to apply to the data
-        :param scaling_pipeline: custom scaling pipeline to apply to the data
+        :param imputer: custom impute pipeline to apply to the data
+        :param scaler: custom scaling pipeline to apply to the data
         """
         self._data_source = data_source
         self._summary_source = summary_source
@@ -592,20 +596,19 @@ class AzdiasPreprocessor():
             print(f"No pipeline parameter passed in. Building default pipeline...")
             self._cleaning_pipeline = self._build_default_cleaning_pipeline()
 
-        # self._impute_scale_pipeline = None
-        #
-        # if impute_pipeline and scale_pipeline:
-        #     self._impute_pipeline = impute_pipeline
-        #     self._scale_pipeline = scale_pipeline
-        # else:
-        #     print(f"No impute and scale pipeline parameter passed in.")
-        #     self._impute_pipeline = None
-        #     self._scale_pipeline = None
-        #
-        # self._data_cleaned = False
-        # self._data_imputed_scaled = False
+        if imputer and scaler:
+            self._imputer = imputer
+            self._scaler = scaler
+        else:
+            print(f"No imputer and scaler parameters passed in.")
+            self._imputer = None
+            self._scaler = None
+
+        self._is_clean_pipeline_fitted = False
+        self._data_imputed_scaled = False
 
         del self._feature_summary
+        print(f"Preprocessor initialized successfully...Ready to be used!")
 
     @property
     def feature_groups(self):
@@ -613,23 +616,37 @@ class AzdiasPreprocessor():
 
     @property
     def cleaning_pipeline(self):
+
         if not self._cleaning_pipeline:
+            print(f"Pipeline not provided or created. Returning None...")
+            return None
+
+        if not self._is_clean_pipeline_fitted:
             print(f"Pipeline not fitted yet. Returning unfitted pipeline...")
+
         return self._cleaning_pipeline
 
-    # @property
-    # def scale_pipeline(self):
-    #     if not(self._data_imputed_scaled and self._data_imputed_scaled):
-    #         print(f"Pipeline not fitted yet. Returning unfitted pipeline...")
-    #     else:
-    #         return self._scale_pipeline
+    @property
+    def scaler(self):
+        if not self._scaler:
+            print(f"Scaler not provided or created. Returning None...")
+            return None
 
-    # @property
-    # def impute_pipeline(self):
-    #     if not(self._data_imputed_scaled and self._data_imputed_scaled):
-    #         print(f"Pipeline not fitted yet. Returning unfitted pipeline...")
-    #
-    #     return self._impute_pipeline
+        if not self._data_imputed_scaled:
+            print(f"Pipeline not fitted yet. Returning unfitted pipeline...")
+        else:
+            return self._scaler
+
+    @property
+    def imputer(self):
+        if not self._cleaning_pipeline:
+            print(f"Imputer not provided or created. Returning None...")
+            return None
+
+        if not self._data_imputed_scaled:
+            print(f"Pipeline not fitted yet. Returning unfitted pipeline...")
+
+        return self._imputer
 
     def _set_na_features_to_drop(self, df):
 
@@ -647,7 +664,7 @@ class AzdiasPreprocessor():
         return df
 
     def _load_data(self):
-        print(f"Loading data from...{self._data_source}")
+        print(f"Learning from data in...{self._data_source}")
         df_population_raw = pd.read_csv(self._data_source, delimiter=";")
         self._feature_summary = pd.read_csv(self._summary_source, delimiter=";")
 
@@ -709,12 +726,24 @@ class AzdiasPreprocessor():
                     self._feature_groups[MULTI].add(feature)
 
     def _build_default_cleaning_pipeline(self):
+        """
+        PREPROCESSING PIPELINE SUMMARY
+        ===============================================================================
+        PIPELINE STEPS:
+        ---------------
+        1. REPLACE MISSING VALUES (ReplaceMissingTransformer)
+        2. DROP HIGH-MISSING COLUMNS (FeatureDropper)
+        3. SPLIT DATASET BY ROW MISSINGNESS (DatasetSplitter)
+        4. ENGINEER MIXED-TYPE FEATURES (MixedTypeEngineer)
+        5. DROP ORIGINAL MIXED FEATURES (FeatureDropper)
+        6. ENCODE CATEGORICAL FEATURES (CategoricalEncoder)
+        """
         print(f"Building cleaning pipeline...")
 
-        # 1. Replace Missings
+        # 1. Replace missings
         replace_missing_transformer = ReplaceMissingTransformer(self._feature_summary)
 
-        # 2. Drop High NaN Features
+        # 2. Drop High NaN features
         drop_na_features_transformer = FeatureDropper(features_to_drop=list(self._feature_groups[TO_DROP][NA_FEATURES]))
 
         # 3. Split data into two subsets
@@ -725,10 +754,10 @@ class AzdiasPreprocessor():
         # as to not affect the results of splitting
         drop_cat_features_transformer = FeatureDropper(features_to_drop=list(self._feature_groups[TO_DROP][CATEGORICAL]))
 
-        # 4. Engineer mixed-type features
+        # 5. Engineer mixed-type features
         engineer_transformer = MixedFeatureEngineer(mappings=MAPPINGS)
 
-        # 5. Encode Features
+        # 6. Encode multi-level categorical features, including the engineered one
         categorical_features = list(self._feature_groups[MULTI].union(self._feature_groups[ENGINEERED_CAT]))
 
         encoder = Encoder(
@@ -750,42 +779,28 @@ class AzdiasPreprocessor():
 
         return pipeline
 
-    # def _set_impute_scale_pipeline(self, X):
-    #     print(f"Building imputation and scaling pipeline...")
-    #
-    #     imputer = ColumnTransformer(
-    #         transformers=[
-    #             (BINARY, SimpleImputer(strategy='most_frequent'), list(self._feature_groups[BINARY])),
-    #             (BIN_NO_NUM, SimpleImputer(strategy='most_frequent'), list(self._feature_groups[BIN_NO_NUM])),
-    #             (ORDINAL, SimpleImputer(strategy='median'), list(self._feature_groups[ORDINAL])),
-    #             (NUMERIC, SimpleImputer(strategy='median'), list(self._feature_groups[NUMERIC])),
-    #             (INTERVAL, SimpleImputer(strategy='median'), list(self._feature_groups[INTERVAL]))
-    #         ],
-    #         remainder='passthrough',
-    #         verbose_feature_names_out=False
-    #     ).set_output(transform="pandas")
-    #
-    #     imputer.fit(X)
-    #
-    #     scaler = StandardScaler()
-    #
-    #     scaler.fit(X)
-    #
-    #     self._impute_pipeline = imputer
-    #     self._scaler_pipeline = scaler
-
-    def clean_data(self, X):
+    def clean_data(self, X, is_customer_data=False):
         X_out = X.copy()
 
-        print(f"Cleaning data...")
+        # Check if cleaning customer data
+        if is_customer_data:
+            if self._is_clean_pipeline_fitted:
+                print(f"Cleaning Customer Data...Transforming...")
+                X_out = self._cleaning_pipeline.transform(X)
+            else:
+                print(f"Cleaning Pipeline not fit with General Population Data.")
+                print(f"Please clean and fit with that dataset first.")
 
-        if self._cleaning_pipeline:
-            X_out = self._cleaning_pipeline.fit_transform(X)
-            self._data_cleaned = True
-            self.feature_groups[ENCODED_FEATURES] = self._cleaning_pipeline.named_steps[ENCODE].get_encoded_features_out(X_out)
+        # Else, we are working with general population data
         else:
-            print(f"No cleaning pipeline provided...returning original data")
-            self._data_cleaned = False
+            if self._cleaning_pipeline:
+                print(f"Cleaning Population Data...Fitting and Transforming...")
+                X_out = self._cleaning_pipeline.fit_transform(X)
+                self._is_clean_pipeline_fitted = True
+                self.feature_groups[ENCODED_FEATURES] = self._cleaning_pipeline.named_steps[ENCODE].get_encoded_features_out(X_out)
+            else:
+                print(f"No cleaning pipeline has been created or provided...returning original data")
+                self._is_clean_pipeline_fitted = False
 
         return X_out
 
@@ -793,38 +808,44 @@ class AzdiasPreprocessor():
 
         X_out = X.copy()
 
-        imputer = ColumnTransformer(
-            transformers=[
-                (BINARY, SimpleImputer(strategy='most_frequent'), list(self._feature_groups[BINARY])),
-                (BIN_NO_NUM, SimpleImputer(strategy='most_frequent'), list(self._feature_groups[BIN_NO_NUM])),
-                (ORDINAL, SimpleImputer(strategy='median'), list(self._feature_groups[ORDINAL])),
-                (NUMERIC, SimpleImputer(strategy='median'), list(self._feature_groups[NUMERIC])),
-                (INTERVAL, SimpleImputer(strategy='median'), list(self._feature_groups[INTERVAL]))
-            ],
-            remainder='passthrough',
-            verbose_feature_names_out=False
-        ).set_output(transform="pandas")
+        if not self._imputer:
+            imputer = ColumnTransformer(
+                transformers=[
+                    (BINARY, SimpleImputer(strategy='most_frequent'), list(self._feature_groups[BINARY])),
+                    (BIN_NO_NUM, SimpleImputer(strategy='most_frequent'), list(self._feature_groups[BIN_NO_NUM])),
+                    (ORDINAL, SimpleImputer(strategy='median'), list(self._feature_groups[ORDINAL])),
+                    (NUMERIC, SimpleImputer(strategy='median'), list(self._feature_groups[NUMERIC])),
+                    (INTERVAL, SimpleImputer(strategy='median'), list(self._feature_groups[INTERVAL]))
+                ],
+                remainder='passthrough',
+                verbose_feature_names_out=False
+            ).set_output(transform="pandas")
 
-        scaler = StandardScaler()
+            self._imputer = imputer
 
-        X_out = imputer.fit_transform(X_out)
-        X_out = scaler.fit_transform(X_out)
+        if not self._scaler:
+            scaler = StandardScaler()
+            self._scaler = scaler
+
+        print(f"Imputing and Scaling Data...")
+        X_out = self._imputer.fit_transform(X_out)
+        X_out = self._scaler.fit_transform(X_out)
+
+        self._data_imputed_scaled = True
 
         return X_out
 
-    def downcast_data(self, X):
+    def get_high_missing_subset(self, X):
+        if not self._cleaning_pipeline:
+            print(f"No cleaning pipeline has been created or provided...returning None")
+            return None
 
-        X_out = X.copy()
+        if not self._is_clean_pipeline_fitted:
+            print(f"Cleaning Pipeline not Fit and Transformed...returning None")
+            return None
 
-        X_out = X_out.astype("float16")
+        # Get the DataSplitter transformer
+        splitter: DatasetSplitter = self._cleaning_pipeline.named_steps[SPLIT_DATA]
 
-        return X_out
-
-
-
-
-
-
-
-
-
+        # Return the subset
+        return splitter.get_high_missing_subset(X)
