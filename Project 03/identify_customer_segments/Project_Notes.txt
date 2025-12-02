@@ -1,12 +1,17 @@
 Project Structure Note:
+
+Project can be found at: ud-ml-pytorch/Project 03/identify_customer_segments/
+
 This project has been organized into two complementary Jupyter notebooks for clarity and maintainability:
 
-Part 01 focuses on data assessment, exploratory analysis, and preprocessing. This notebook includes building a
+Part 01: Focuses on data assessment, exploratory analysis, and preprocessing. This notebook includes building a
 preprocessing pipeline to clean and prepare the data, which is then saved at the end for use in the subsequent analysis.
 The clean population and customer datasets are saved for loading in Part 02.
 
-Part 02 loads the preprocessed data and contains the dimensionality reduction analysis (PCA), customer segmentation
+Part 02: Loads the preprocessed data and contains the dimensionality reduction analysis (PCA), customer segmentation
 using K-means clustering, and interpretation of the identified customer segments
 
 This modular structure improves readability, allows for cleaner separation between data preparation and analytical
 insights, and makes it easier to navigate through the substantial analysis.
+
+Git-Hub Repo Link: https://github.com/kinant/ud-ml-pytorch/tree/main/Project%2003/identify_customer_segments
