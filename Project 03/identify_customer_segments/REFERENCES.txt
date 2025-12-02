@@ -1,5 +1,11 @@
 REFERENCES:
-
+- https://www.geeksforgeeks.org/python/memory-leak-using-pandas-dataframe/
+- ColumnTransformer:
+- FunctionTransformer:
+- Pipeline:
+- .set_output(transform="pandas"):
+- Saving Dataframe Data: https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.to_csv.html
+- Saving sklean objects: https://www.geeksforgeeks.org/machine-learning/save-classifier-to-disk-in-scikit-learn-in-python/
 - https://scikit-learn.org/stable/developers/develop.html
 - https://stackoverflow.com/questions/40755680/how-to-reset-index-pandas-dataframe-after-dropna-pandas-dataframe
 - https://www.geeksforgeeks.org/machine-learning/how-to-perform-ordinal-encoding-using-sklearn/
@@ -9,3 +15,4 @@ REFERENCES:
 - https://cran.r-project.org/web/packages/LearnPCA/vignettes/Vig_04_Scores_Loadings.pdf
 - https://scikit-learn.org/stable/modules/generated/sklearn.utils.validation.check_is_fitted.html
 - https://stackoverflow.com/questions/44620465/why-did-reset-indexdrop-true-function-unwantedly-remove-column
+-
