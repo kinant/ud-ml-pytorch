@@ -18,4 +18,12 @@ REFERENCES:
 
 NOTEBOOK 2:
 - https://cran.r-project.org/web/packages/LearnPCA/vignettes/Vig_04_Scores_Loadings.pdf
--
+- https://online.stat.psu.edu/stat505/lesson/11/11.4
+- https://support.minitab.com/en-us/minitab/help-and-how-to/statistical-modeling/multivariate/how-to/principal-components/interpret-the-results/key-results/
+- https://statisticsbyjim.com/basics/principal-component-analysis/
+- https://knowledge.udacity.com/questions/172858
+- https://knowledge.udacity.com/questions/613998
+- https://statisticsbyjim.com/basics/principal-component-analysis/
+- 
+
+
