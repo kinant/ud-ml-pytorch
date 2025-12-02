@@ -15,4 +15,7 @@ REFERENCES:
 - https://cran.r-project.org/web/packages/LearnPCA/vignettes/Vig_04_Scores_Loadings.pdf
 - https://scikit-learn.org/stable/modules/generated/sklearn.utils.validation.check_is_fitted.html
 - https://stackoverflow.com/questions/44620465/why-did-reset-indexdrop-true-function-unwantedly-remove-column
+
+NOTEBOOK 2:
+- https://cran.r-project.org/web/packages/LearnPCA/vignettes/Vig_04_Scores_Loadings.pdf
 -
